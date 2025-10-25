@@ -87,7 +87,6 @@ var attackInfoLookup map[string]AttackInfo = map[string]AttackInfo{
 		"frag":      {19, []uint8{0, 2, 3, 4, 6, 7}, "udp fragmentation bypass"},
 		"rsmedia":   {20, []uint8{0, 2, 3, 4, 6, 7}, "rs media bypass (tcp with random flags)"},
 		"socket":    {21, []uint8{0, 2, 4, 6, 7, 31}, "legitimate tcp socket flood (full handshake, clean traffic)"},
-		"conn_exhaust": {22, []uint8{7, 24, 34}, "connection pool exhaustion (conns,duration,port)"},
 }
 
 func uint8InSlice(a uint8, list []uint8) bool {
