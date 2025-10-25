@@ -82,11 +82,12 @@ var attackInfoLookup map[string]AttackInfo = map[string]AttackInfo{
     "ovhtcp":      {14, []uint8{0, 1, 7, 26, 27, 28, 29}, "ovhtcp bypass new (test)"},
     "tcp_handshake": {15, []uint8{7, 24, 34}, "full tcp handshake flood (threads,duration,port)"},
     "conn_exhaust": {16, []uint8{7, 24, 34}, "connection pool exhaustion (conns,duration,port)"},
-    "slowloris": {17, []uint8{7, 24, 34}, "slowloris tcp attack (slow headers)"},
-    "slowudp":   {18, []uint8{7, 24, 0, 6}, "slowloris udp attack (slow packets)"},
-    "frag":      {19, []uint8{0, 2, 3, 4, 6, 7}, "udp fragmentation bypass"},
-    "rsmedia":   {20, []uint8{0, 2, 3, 4, 6, 7}, "rs media bypass (tcp with random flags)"},
-    "socket":    {21, []uint8{0, 2, 4, 6, 7, 31}, "legitimate tcp socket flood (full handshake, clean traffic)"},
+		"slowloris": {17, []uint8{7, 24, 34}, "slowloris tcp attack (slow headers)"},
+		"slowudp":   {18, []uint8{7, 24, 0, 6}, "slowloris udp attack (slow packets)"},
+		"frag":      {19, []uint8{0, 2, 3, 4, 6, 7}, "udp fragmentation bypass"},
+		"rsmedia":   {20, []uint8{0, 2, 3, 4, 6, 7}, "rs media bypass (tcp with random flags)"},
+		"socket":    {21, []uint8{0, 2, 4, 6, 7, 31}, "legitimate tcp socket flood (full handshake, clean traffic)"},
+		"conn_exhaust": {22, []uint8{7, 24, 34}, "connection pool exhaustion (conns,duration,port)"},
 }
 
 func uint8InSlice(a uint8, list []uint8) bool {

