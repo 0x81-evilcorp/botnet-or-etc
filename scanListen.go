@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	l, err := net.Listen("tcp", "176.46.152.89:9555")
+	l, err := net.Listen("tcp", ":9555")
 	if err != nil {
 		fmt.Println(err)
 		return
