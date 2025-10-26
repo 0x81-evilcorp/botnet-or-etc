@@ -574,12 +574,20 @@ func (this *Admin) ReadLine(masked bool) (string, error) {
 			if bufPos > 0 {
 				this.conn.Write([]byte("\b \b"))
 				bufPos--
+				// сдвигаем буфер влево
+				for i := bufPos; i < len(buf)-1; i++ {
+					buf[i] = buf[i+1]
+				}
 			}
 		} else if buf[bufPos] == '\x15' { // Ctrl+U - clear line
 			for i := 0; i < bufPos; i++ {
 				this.conn.Write([]byte("\b \b"))
 			}
 			bufPos = 0
+			// очищаем буфер
+			for i := 0; i < len(buf); i++ {
+				buf[i] = 0
+			}
 		} else if buf[bufPos] == '\x17' { // Ctrl+W - clear word
 			// находим начало слова
 			wordStart := bufPos
@@ -590,6 +598,11 @@ func (this *Admin) ReadLine(masked bool) (string, error) {
 			for i := wordStart; i < bufPos; i++ {
 				this.conn.Write([]byte("\b \b"))
 			}
+			// сдвигаем буфер влево
+			shift := bufPos - wordStart
+			for i := wordStart; i < len(buf)-shift; i++ {
+				buf[i] = buf[i+shift]
+			}
 			bufPos = wordStart
 		} else if buf[bufPos] == '\x1B' { // ESC - clear line
 			// очищаем всю строку
@@ -597,6 +610,10 @@ func (this *Admin) ReadLine(masked bool) (string, error) {
 				this.conn.Write([]byte("\b \b"))
 			}
 			bufPos = 0
+			// очищаем буфер
+			for i := 0; i < len(buf); i++ {
+				buf[i] = 0
+			}
 		} else if buf[bufPos] == '\r' || buf[bufPos] == '\t' || buf[bufPos] == '\x09' {
 			bufPos--
 		} else if buf[bufPos] == '\n' || buf[bufPos] == '\x00' {
