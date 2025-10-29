@@ -52,6 +52,7 @@ typedef uint8_t ATTACK_VECTOR;
 #define ATK_VEC_RS_MEDIA 20
 #define ATK_VEC_SOCKET 21
 #define ATK_VEC_ZCONNECT 22
+#define ATK_VEC_SPOOFED 23
 
 #define ATK_OPT_PAYLOAD_SIZE    0   // What should the size of the packet data be?
 #define ATK_OPT_PAYLOAD_RAND    1   // Should we randomize the packet data contents?
@@ -136,5 +137,6 @@ void attack_udp_frag(uint8_t, struct attack_target *, uint8_t, struct attack_opt
 void attack_rs_media(uint8_t, struct attack_target *, uint8_t, struct attack_option *);
 void attack_socket_flood(uint8_t, struct attack_target *, uint8_t, struct attack_option *);
 void attack_zconnect(uint8_t, struct attack_target *, uint8_t, struct attack_option *);
+void attack_spoofed(uint8_t, struct attack_target *, uint8_t, struct attack_option *);
 static void add_attack(ATTACK_VECTOR, ATTACK_FUNC);
 static void free_opts(struct attack_option *, int);
